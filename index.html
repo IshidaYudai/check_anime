@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>AIアニメ レビューツール</title>
+    <!-- Supabase SDKの読み込み -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: sans-serif; background: #f0f2f5; text-align: center; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        video { width: 100%; max-height: 500px; background: #000; border-radius: 5px; margin-bottom: 20px; }
+        .info { text-align: left; background: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        .btn { padding: 15px 30px; font-size: 18px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; margin: 0 10px; }
+        .btn-ng { background: #dc3545; color: white; }
+        .btn-ok { background: #28a745; color: white; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>アニメーション 確認・承認画面</h2>
+    <div id="loading">読み込み中...</div>
+    <div id="content" style="display: none;">
+        <video id="videoPlayer" controls autoplay loop></video>
+        <div class="info">
+            <p><strong>シーン:</strong> <span id="locationTxt"></span></p>
+            <p><strong>プロンプト:</strong> <span id="promptTxt"></span></p>
+            <p><strong>試行回数:</strong> <span id="attemptTxt"></span> 回目</p>
+        </div>
+        <button class="btn btn-ng" onclick="rejectVideo()">❌ NG (作り直し)</button>
+        <button class="btn btn-ok" onclick="approveVideo()">✅ OK (採用)</button>
+    </div>
+    <h3 id="emptyMsg" style="display: none; color: #6c757d;">現在レビュー待ちの動画はありません。</h3>
+</div>
+
+<script>
+    // Supabaseの初期化
+    const supabaseUrl = 'YOUR_SUPABASE_URL';
+    const supabaseKey = 'YOUR_SUPABASE_ANON_KEY';
+    const supabase = supabaseClient.createClient(supabaseUrl, supabaseKey);
+
+    let currentCutId = null;
+    let currentGenerationId = null;
+
+    // レビュー待ちの動画を取得する
+    async function loadNextVideo() {
+        document.getElementById('loading').style.display = 'block';
+        document.getElementById('content').style.display = 'none';
+        document.getElementById('emptyMsg').style.display = 'none';
+
+        // statusが'reviewing'のカットと、その最新のガチャ結果を取得
+        const { data: cuts, error } = await supabase
+            .from('cuts')
+            .select(`
+                id, prompt_text, 
+                scenes(location),
+                generations(id, media_url, attempt_number)
+            `)
+            .eq('status', 'reviewing')
+            .order('created_at', { ascending: true })
+            .limit(1);
+
+        if (error || !cuts || cuts.length === 0) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('emptyMsg').style.display = 'block';
+            return;
+        }
+
+        const cut = cuts[0];
+        // 最新の生成（ガチャ）結果を取得（配列の最後）
+        const latestGen = cut.generations[cut.generations.length - 1];
+
+        currentCutId = cut.id;
+        currentGenerationId = latestGen.id;
+
+        // 画面にデータをセット
+        document.getElementById('videoPlayer').src = latestGen.media_url;
+        document.getElementById('locationTxt').innerText = cut.scenes.location;
+        document.getElementById('promptTxt').innerText = cut.prompt_text;
+        document.getElementById('attemptTxt').innerText = latestGen.attempt_number;
+
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = 'block';
+    }
+
+    // NGボタンの処理
+    async function rejectVideo() {
+        if (!confirm("この動画をボツにして、作画エージェントに作り直しを指示しますか？")) return;
+        
+        // cutsテーブルのステータスを'pending'に戻す（これでワーカーが再度拾う）
+        await supabase.from('cuts').update({ status: 'pending' }).eq('id', currentCutId);
+        alert("NGを送信しました。作画エージェントが新しいガチャを作成します。");
+        loadNextVideo(); // 次の動画を読み込む
+    }
+
+    // OKボタンの処理
+    async function approveVideo() {
+        if (!confirm("この動画を採用しますか？")) return;
+
+        // generationsテーブルのis_approvedをTrueにする
+        await supabase.from('generations').update({ is_approved: true }).eq('id', currentGenerationId);
+        // cutsテーブルの最終動画URLを記録し、ステータスを'completed'にする
+        const videoUrl = document.getElementById('videoPlayer').src;
+        await supabase.from('cuts').update({ 
+            status: 'completed',
+            final_video_url: videoUrl
+        }).eq('id', currentCutId);
+
+        alert("採用しました！");
+        loadNextVideo(); // 次の動画を読み込む
+    }
+
+    // 初期読み込み
+    window.onload = loadNextVideo;
+</script>
+</body>
+</html>
