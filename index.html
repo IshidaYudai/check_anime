@@ -34,10 +34,10 @@
 </div>
 
 <script>
-    // Supabaseの初期化
+    // Supabaseの初期化（CDNからの読み込みに合わせた正しい書き方）
     const supabaseUrl = 'https://ehvkbnbhrjdsrjyfgjgc.supabase.co';
     const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVodmtibmJocmpkc3JqeWZnamdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzMjg3NTQsImV4cCI6MjA4OTkwNDc1NH0.TSNFzbPYPKkP10r6SpW3YXL5uNq3CLmqZehBZEVES2c';
-    const supabase = supabaseClient.createClient(supabaseUrl, supabaseKey);
+    const db = window.supabase.createClient(supabaseUrl, supabaseKey);
 
     let currentCutId = null;
     let currentGenerationId = null;
@@ -49,7 +49,7 @@
         document.getElementById('emptyMsg').style.display = 'none';
 
         // statusが'reviewing'のカットと、その最新のガチャ結果を取得
-        const { data: cuts, error } = await supabase
+        const { data: cuts, error } = await db
             .from('cuts')
             .select(`
                 id, prompt_text, 
@@ -60,7 +60,13 @@
             .order('created_at', { ascending: true })
             .limit(1);
 
-        if (error || !cuts || cuts.length === 0) {
+        if (error) {
+            console.error("DBエラー:", error);
+            alert("データベースの読み込みに失敗しました。");
+            return;
+        }
+
+        if (!cuts || cuts.length === 0) {
             document.getElementById('loading').style.display = 'none';
             document.getElementById('emptyMsg').style.display = 'block';
             return;
@@ -75,7 +81,7 @@
 
         // 画面にデータをセット
         document.getElementById('videoPlayer').src = latestGen.media_url;
-        document.getElementById('locationTxt').innerText = cut.scenes.location;
+        document.getElementById('locationTxt').innerText = cut.scenes?.location || "場所指定なし";
         document.getElementById('promptTxt').innerText = cut.prompt_text;
         document.getElementById('attemptTxt').innerText = latestGen.attempt_number;
 
@@ -87,27 +93,24 @@
     async function rejectVideo() {
         if (!confirm("この動画をボツにして、作画エージェントに作り直しを指示しますか？")) return;
         
-        // cutsテーブルのステータスを'pending'に戻す（これでワーカーが再度拾う）
-        await supabase.from('cuts').update({ status: 'pending' }).eq('id', currentCutId);
+        await db.from('cuts').update({ status: 'pending' }).eq('id', currentCutId);
         alert("NGを送信しました。作画エージェントが新しいガチャを作成します。");
-        loadNextVideo(); // 次の動画を読み込む
+        loadNextVideo();
     }
 
     // OKボタンの処理
     async function approveVideo() {
         if (!confirm("この動画を採用しますか？")) return;
 
-        // generationsテーブルのis_approvedをTrueにする
-        await supabase.from('generations').update({ is_approved: true }).eq('id', currentGenerationId);
-        // cutsテーブルの最終動画URLを記録し、ステータスを'completed'にする
+        await db.from('generations').update({ is_approved: true }).eq('id', currentGenerationId);
         const videoUrl = document.getElementById('videoPlayer').src;
-        await supabase.from('cuts').update({ 
+        await db.from('cuts').update({ 
             status: 'completed',
             final_video_url: videoUrl
         }).eq('id', currentCutId);
 
         alert("採用しました！");
-        loadNextVideo(); // 次の動画を読み込む
+        loadNextVideo();
     }
 
     // 初期読み込み
