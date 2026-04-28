@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <title>AIアニメ レビューツール</title>
-    <!-- Supabase SDKの読み込み -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { font-family: sans-serif; background: #f0f2f5; text-align: center; padding: 20px; }
@@ -34,21 +33,21 @@
 </div>
 
 <script>
-    // Supabaseの初期化（CDNからの読み込みに合わせた正しい書き方）
+    // 【重要】URLとキーを書き換えてください    const supabaseUrl = 'https://ehvkbnbhrjdsrjyfgjgc.supabase.co';
     const supabaseUrl = 'https://ehvkbnbhrjdsrjyfgjgc.supabase.co';
     const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVodmtibmJocmpkc3JqeWZnamdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzMjg3NTQsImV4cCI6MjA4OTkwNDc1NH0.TSNFzbPYPKkP10r6SpW3YXL5uNq3CLmqZehBZEVES2c';
+    
+    // 変数名を衝突しない「db」にして初期化
     const db = window.supabase.createClient(supabaseUrl, supabaseKey);
 
     let currentCutId = null;
     let currentGenerationId = null;
 
-    // レビュー待ちの動画を取得する
     async function loadNextVideo() {
         document.getElementById('loading').style.display = 'block';
         document.getElementById('content').style.display = 'none';
         document.getElementById('emptyMsg').style.display = 'none';
 
-        // statusが'reviewing'のカットと、その最新のガチャ結果を取得
         const { data: cuts, error } = await db
             .from('cuts')
             .select(`
@@ -73,13 +72,11 @@
         }
 
         const cut = cuts[0];
-        // 最新の生成（ガチャ）結果を取得（配列の最後）
         const latestGen = cut.generations[cut.generations.length - 1];
 
         currentCutId = cut.id;
         currentGenerationId = latestGen.id;
 
-        // 画面にデータをセット
         document.getElementById('videoPlayer').src = latestGen.media_url;
         document.getElementById('locationTxt').innerText = cut.scenes?.location || "場所指定なし";
         document.getElementById('promptTxt').innerText = cut.prompt_text;
@@ -89,7 +86,6 @@
         document.getElementById('content').style.display = 'block';
     }
 
-    // NGボタンの処理
     async function rejectVideo() {
         if (!confirm("この動画をボツにして、作画エージェントに作り直しを指示しますか？")) return;
         
@@ -98,7 +94,6 @@
         loadNextVideo();
     }
 
-    // OKボタンの処理
     async function approveVideo() {
         if (!confirm("この動画を採用しますか？")) return;
 
@@ -113,7 +108,6 @@
         loadNextVideo();
     }
 
-    // 初期読み込み
     window.onload = loadNextVideo;
 </script>
 </body>
