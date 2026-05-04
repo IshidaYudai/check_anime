@@ -125,7 +125,7 @@
     }
 
     // 🔄 NG（修正指示送信）の処理
-    async function rejectVideo() {
+     async function rejectVideo() {
         const feedbackText = document.getElementById('feedbackInput').value.trim();
         
         if (!feedbackText) {
@@ -135,10 +135,11 @@
 
         if (!confirm(`以下の指示で作画AIに再生成させますか？\n「${feedbackText}」`)) return;
         
-        // 【変更点】ステータスを "needs_rework" にし、日本語の指示を "human_feedback" に保存
+        // 【変更点】ステータスと指示文と一緒に、AIの試行回数を「0」にリセットする！
         await db.from('cuts').update({ 
             status: 'needs_rework',
-            human_feedback: feedbackText
+            human_feedback: feedbackText,
+            retry_count: 0  // ← ★これを追加★
         }).eq('id', currentCutId);
         
         alert("作画AIに修正指示を送信しました！数分後に新しい動画が上がってきます。");
