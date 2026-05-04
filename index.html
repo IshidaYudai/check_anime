@@ -2,42 +2,57 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>AIアニメ レビューツール</title>
+    <title>AIアニメ レビューツール (ディレクターモード)</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { font-family: sans-serif; background: #f0f2f5; text-align: center; padding: 20px; }
         .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         video { width: 100%; max-height: 500px; background: #000; border-radius: 5px; margin-bottom: 20px; }
-        .info { text-align: left; background: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
-        .btn { padding: 15px 30px; font-size: 18px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; margin: 0 10px; }
-        .btn-ng { background: #dc3545; color: white; }
-        .btn-ok { background: #28a745; color: white; }
+        .info { text-align: left; background: #e9ecef; padding: 15px; border-radius: 5px; margin-bottom: 20px; font-size: 14px; }
+        .btn { padding: 15px 30px; font-size: 16px; cursor: pointer; border: none; border-radius: 5px; font-weight: bold; margin: 5px; transition: 0.2s; }
+        .btn:hover { opacity: 0.8; }
+        .btn-ng { background: #ffc107; color: #000; } /* 修正指示は黄色系に */
+        .btn-ok { background: #28a745; color: white; width: 100%; font-size: 20px; margin-bottom: 20px; }
+        
+        .feedback-box { background: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 20px; border: 1px solid #ffeeba; }
+        .feedback-box textarea { width: 95%; height: 60px; padding: 10px; border-radius: 5px; border: 1px solid #ccc; margin-bottom: 10px; font-size: 14px; resize: vertical; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>アニメーション 確認・承認画面</h2>
-    <div id="loading">読み込み中...</div>
+    <h2>アニメーション 最終承認・ディレクション画面</h2>
+    <div id="loading">AIが一次完成させた動画を探しています...</div>
+    
     <div id="content" style="display: none;">
         <video id="videoPlayer" controls autoplay loop></video>
+        
+        <!-- OKボタン (大きく上に配置) -->
+        <button class="btn btn-ok" onclick="approveVideo()">✅ このカットを最終決定 (承認)</button>
+
+        <!-- 情報表示パネル -->
         <div class="info">
             <p><strong>シーン:</strong> <span id="locationTxt"></span></p>
-            <p><strong>プロンプト:</strong> <span id="promptTxt"></span></p>
-            <p><strong>試行回数:</strong> <span id="attemptTxt"></span> 回目</p>
+            <p><strong>開始プロンプト:</strong> <span id="startPromptTxt"></span></p>
+            <p><strong>終了プロンプト:</strong> <span id="endPromptTxt"></span></p>
+            <p><strong>AI試行回数:</strong> <span id="attemptTxt"></span> 回</p>
         </div>
-        <button class="btn btn-ng" onclick="rejectVideo()">❌ NG (作り直し)</button>
-        <button class="btn btn-ok" onclick="approveVideo()">✅ OK (採用)</button>
+        
+        <!-- NG（修正指示）パネル -->
+        <div class="feedback-box">
+            <h4>納得いかない場合（AIへ修正指示を出す）</h4>
+            <textarea id="feedbackInput" placeholder="例：髪を金髪にして。もっとカメラを顔に寄せて。背景を夜にして。"></textarea>
+            <br>
+            <button class="btn btn-ng" onclick="rejectVideo()">🔄 日本語の指示を作画AIに送って作り直させる</button>
+        </div>
     </div>
-    <h3 id="emptyMsg" style="display: none; color: #6c757d;">現在レビュー待ちの動画はありません。</h3>
+    <h3 id="emptyMsg" style="display: none; color: #6c757d;">現在レビュー待ち（一次完成済）のカットはありません。<br>作画エージェントが頑張っています💤</h3>
 </div>
 
 <script>
-    // 【重要】URLとキーを書き換えてください    const supabaseUrl = 'https://ehvkbnbhrjdsrjyfgjgc.supabase.co';
     const supabaseUrl = 'https://ehvkbnbhrjdsrjyfgjgc.supabase.co';
     const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVodmtibmJocmpkc3JqeWZnamdjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQzMjg3NTQsImV4cCI6MjA4OTkwNDc1NH0.TSNFzbPYPKkP10r6SpW3YXL5uNq3CLmqZehBZEVES2c';
     
-    // 変数名を衝突しない「db」にして初期化
     const db = window.supabase.createClient(supabaseUrl, supabaseKey);
 
     let currentCutId = null;
@@ -47,15 +62,17 @@
         document.getElementById('loading').style.display = 'block';
         document.getElementById('content').style.display = 'none';
         document.getElementById('emptyMsg').style.display = 'none';
+        document.getElementById('feedbackInput').value = ""; // 入力欄をクリア
 
+        // 【変更点】AIが「completed(一次完成)」と判断したものだけを取得する
         const { data: cuts, error } = await db
             .from('cuts')
             .select(`
-                id, prompt_text, 
+                id, start_prompt, end_prompt, prompt_text,
                 scenes(location),
                 generations(id, media_url, attempt_number)
             `)
-            .eq('status', 'reviewing')
+            .eq('status', 'completed') 
             .order('created_at', { ascending: true })
             .limit(1);
 
@@ -72,39 +89,59 @@
         }
 
         const cut = cuts[0];
+        // 最新の生成結果を取得
         const latestGen = cut.generations[cut.generations.length - 1];
 
         currentCutId = cut.id;
-        currentGenerationId = latestGen.id;
+        currentGenerationId = latestGen?.id;
 
-        document.getElementById('videoPlayer').src = latestGen.media_url;
+        document.getElementById('videoPlayer').src = latestGen?.media_url || "";
         document.getElementById('locationTxt').innerText = cut.scenes?.location || "場所指定なし";
-        document.getElementById('promptTxt').innerText = cut.prompt_text;
-        document.getElementById('attemptTxt').innerText = latestGen.attempt_number;
+        document.getElementById('startPromptTxt').innerText = cut.start_prompt || cut.prompt_text || "なし";
+        document.getElementById('endPromptTxt').innerText = cut.end_prompt || "なし";
+        document.getElementById('attemptTxt').innerText = latestGen?.attempt_number || 1;
 
         document.getElementById('loading').style.display = 'none';
         document.getElementById('content').style.display = 'block';
     }
 
-    async function rejectVideo() {
-        if (!confirm("この動画をボツにして、作画エージェントに作り直しを指示しますか？")) return;
-        
-        await db.from('cuts').update({ status: 'pending' }).eq('id', currentCutId);
-        alert("NGを送信しました。作画エージェントが新しいガチャを作成します。");
-        loadNextVideo();
-    }
-
+    // ✅ OK（最終承認）の処理
     async function approveVideo() {
-        if (!confirm("この動画を採用しますか？")) return;
+        if (!confirm("この動画を最終版として採用しますか？")) return;
 
-        await db.from('generations').update({ is_approved: true }).eq('id', currentGenerationId);
+        // 【変更点】最終ステータスを "approved" にする
         const videoUrl = document.getElementById('videoPlayer').src;
         await db.from('cuts').update({ 
-            status: 'completed',
+            status: 'approved',
             final_video_url: videoUrl
         }).eq('id', currentCutId);
 
+        if(currentGenerationId) {
+            await db.from('generations').update({ is_approved: true }).eq('id', currentGenerationId);
+        }
+
         alert("採用しました！");
+        loadNextVideo();
+    }
+
+    // 🔄 NG（修正指示送信）の処理
+    async function rejectVideo() {
+        const feedbackText = document.getElementById('feedbackInput').value.trim();
+        
+        if (!feedbackText) {
+            alert("エラー：修正指示をテキストボックスに入力してください。");
+            return;
+        }
+
+        if (!confirm(`以下の指示で作画AIに再生成させますか？\n「${feedbackText}」`)) return;
+        
+        // 【変更点】ステータスを "needs_rework" にし、日本語の指示を "human_feedback" に保存
+        await db.from('cuts').update({ 
+            status: 'needs_rework',
+            human_feedback: feedbackText
+        }).eq('id', currentCutId);
+        
+        alert("作画AIに修正指示を送信しました！数分後に新しい動画が上がってきます。");
         loadNextVideo();
     }
 
