@@ -99,7 +99,7 @@
         document.getElementById('locationTxt').innerText = cut.scenes?.location || "場所指定なし";
         document.getElementById('startPromptTxt').innerText = cut.start_prompt || cut.prompt_text || "なし";
         document.getElementById('endPromptTxt').innerText = cut.end_prompt || "なし";
-        document.getElementById('attemptTxt').innerText = latestGen?.attempt_number || 1;
+        document.getElementById('attemptTxt').innerText = cut.generations.length || 1;
 
         document.getElementById('loading').style.display = 'none';
         document.getElementById('content').style.display = 'block';
